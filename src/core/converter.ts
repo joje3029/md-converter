@@ -40,12 +40,9 @@ export abstract class BaseConverter implements IConverter {
         options?: MermaidOptions
     ): Promise<string> {
         try {
-            return await this.mermaidHandler.generateImage(content, options);
+            return await this.mermaidHandler.convertToImage(content);
         } catch (error) {
-            if (error instanceof Error) {
-                throw new Error(`Mermaid 다이어그램 처리 실패: ${error.message}`);
-            }
-            throw new Error('Mermaid 다이어그램 처리 중 알 수 없는 오류 발생');
+            throw new Error(`Mermaid 다이어그램 처리 실패: ${error}`);
         }
     }
 

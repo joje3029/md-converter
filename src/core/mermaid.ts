@@ -22,9 +22,15 @@ export class MermaidHandler {
 
     async init(): Promise<void> {
         try {
-            await fs.access(this.tempDir);
-        } catch {
-            await fs.mkdir(this.tempDir);
+            await fs.rm(this.tempDir, { recursive: true, force: true });
+        } catch (error) {
+            // 디렉토리가 없어도 무시
+        }
+        
+        try {
+            await fs.mkdir(this.tempDir, { recursive: true });
+        } catch (error) {
+            throw new Error(`임시 디렉토리 생성 실패: ${error}`);
         }
     }
 
