@@ -23,4 +23,9 @@ coverage/
 
 # OS
 .DS_Store
-Thumbs.db 
+Thumbs.db
+
+# Converted files
+output/
+*.docx
+*.txt 
