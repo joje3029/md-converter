@@ -1,0 +1,20 @@
+{
+  "name": "md-converter",
+  "version": "1.0.0",
+  "description": "Markdown to Word/TXT converter with Mermaid support",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "docx": "^8.5.0",
+    "markdown-it": "^14.0.0"
+  },
+  "devDependencies": {
+    "@mermaid-js/mermaid-cli": "^10.8.0",
+    "@types/markdown-it": "^13.0.7",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
+  }
+} 
