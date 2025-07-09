@@ -44,6 +44,5 @@ node dist/index.js example.md result.txt   # output/result.txt로 저장됨
 md-converter/
 ├── src/           # 소스 코드
 ├── examples/      # 예제 파일
-├── output/        # 변환된 결과물 저장
-└── temp/          # 임시 파일 (자동 정리됨)
+└── output/        # 변환된 결과물 저장
 ``` 
