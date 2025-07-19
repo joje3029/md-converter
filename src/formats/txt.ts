@@ -1,98 +1,117 @@
 import { BaseConverter, ConversionOptions } from '../core/converter';
 import { MarkdownNode } from '../core/parser';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 
 export class TxtConverter extends BaseConverter {
-    private output: string[] = [];
-    private imageCounter: number = 1;
+    private readonly INDENT_SIZE = 2;  // 기본 들여쓰기 크기
+    private readonly LIST_MARKERS = {
+        bullet: '•',      // 기본 글머리 기호
+        bullet1: '○',    // 2단계 글머리 기호
+        bullet2: '■',    // 3단계 글머리 기호
+        ordered: (num: number) => `${num}.` // 번호 매기기
+    };
 
     async convert(markdown: string, options: ConversionOptions): Promise<void> {
         try {
             const parser = new (await import('../core/parser')).MarkdownParser();
             const nodes = parser.parse(markdown);
-
-            this.output = [];
-            this.imageCounter = 1;
+            
+            let content = '';
+            let lastNodeType = '';
 
             for (const node of nodes) {
-                const text = await this.convertNode(node);
-                if (text) {
-                    this.output.push(text);
+                // 노드 타입이 바뀔 때 추가 줄바꿈
+                if (lastNodeType && lastNodeType !== node.type) {
+                    content += '\n';
                 }
+
+                content += await this.convertNode(node);
+                lastNodeType = node.type;
             }
 
-            // 결과를 파일에 저장
-            await fs.writeFile(options.outputPath, this.output.join('\n\n'));
-            
-            // 이미지 파일들을 결과 파일과 같은 디렉토리에 복사
-            await this.copyMermaidImages(options.outputPath);
-            
-            // 임시 파일 정리
+            await fs.writeFile(options.outputPath, content, 'utf-8');
             await this.cleanup();
         } catch (error) {
             if (error instanceof Error) {
-                throw new Error(`텍스트 변환 실패: ${error.message}`);
+                throw new Error(`TXT 변환 실패: ${error.message}`);
             }
-            throw new Error('텍스트 변환 중 알 수 없는 오류 발생');
+            throw new Error('TXT 변환 중 알 수 없는 오류 발생');
         }
     }
 
     async convertNode(node: MarkdownNode): Promise<string> {
+        let content = '';
+        const indent = (node.attrs?.indent || 0) * this.INDENT_SIZE;
+        const indentStr = ' '.repeat(indent);
+
         switch (node.type) {
             case 'heading':
                 const level = parseInt(node.attrs?.level || '1');
-                const prefix = '#'.repeat(level);
-                return `${prefix} ${node.content}`;
+                // 굵은 텍스트 처리
+                content = `${indentStr}${this.processBoldText(node.content)}\n`;
+                // h1 제목의 경우 추가 줄바꿈
+                if (level === 1) {
+                    content += '\n';
+                }
+                break;
 
             case 'paragraph':
-                return node.content;
+                content = `${indentStr}${this.processBoldText(node.content)}\n\n`;
+                break;
+
+            case 'list_item':
+                const listLevel = node.attrs?.listLevel || 1;
+                const listType = node.attrs?.listType || 'bullet';
+                const marker = this.getListMarker(listType, listLevel);
+                content = `${indentStr}${marker} ${this.processBoldText(node.content)}\n`;
+                break;
+
+            case 'code':
+                // 코드 블록은 구분선과 함께 표시
+                const codeLines = node.content.split('\n');
+                const separator = '='.repeat(60);  // 구분선
+                const language = node.attrs?.language ? `[${node.attrs.language}]` : '';
+                content = `\n${indentStr}${separator}\n`;
+                content += `${indentStr}${language}\n`;
+                content += codeLines.map(line => `${indentStr}    ${line}`).join('\n') + '\n';
+                content += `${indentStr}${separator}\n\n`;
+                break;
 
             case 'mermaid':
                 const imagePath = await this.handleMermaidDiagram(node.content);
-                const imageRef = `[다이어그램 ${this.imageCounter++}] - 이미지 파일: ${path.basename(imagePath)}`;
-                return `[Mermaid 다이어그램]\n${imageRef}`;
-
-            case 'code':
-                return `\`\`\`${node.attrs?.language || ''}\n${node.content}\n\`\`\``;
-
-            case 'table':
-                return this.convertTable(node);
+                content = `${indentStr}[Mermaid Diagram: ${imagePath}]\n\n`;
+                break;
 
             default:
-                return node.content || '';
-        }
-    }
-
-    private convertTable(node: MarkdownNode): string {
-        if (!node.children) return '';
-
-        const rows = node.children.map(row => {
-            if (!row.children) return '';
-            return row.children.map(cell => cell.content || '').join(' | ');
-        });
-
-        const separator = '-'.repeat(rows[0].length);
-        rows.splice(1, 0, separator);
-
-        return rows.join('\n');
-    }
-
-    private async copyMermaidImages(outputPath: string): Promise<void> {
-        const outputDir = path.dirname(outputPath);
-        const tempDir = this.mermaidHandler['tempDir']; // accessing protected property
-
-        try {
-            const files = await fs.readdir(tempDir);
-            for (const file of files) {
-                if (file.endsWith('.png') || file.endsWith('.svg')) {
-                    const sourcePath = path.join(tempDir, file);
-                    const targetPath = path.join(outputDir, file);
-                    await fs.copyFile(sourcePath, targetPath);
+                if (node.content) {
+                    content = `${indentStr}${this.processBoldText(node.content)}\n`;
                 }
-            }
-        } catch (error) {
-            console.warn('이미지 복사 중 오류 발생:', error);
+                break;
         }
+
+        return content;
+    }
+
+    private getListMarker(type: string, level: number): string {
+        if (type === 'ordered') {
+            return this.LIST_MARKERS.ordered(level);
+        }
+
+        // 글머리 기호는 레벨에 따라 다르게 표시
+        switch (level) {
+            case 1:
+                return this.LIST_MARKERS.bullet;
+            case 2:
+                return this.LIST_MARKERS.bullet1;
+            case 3:
+                return this.LIST_MARKERS.bullet2;
+            default:
+                return this.LIST_MARKERS.bullet;
+        }
+    }
+
+    private processBoldText(text: string): string {
+        // **text** 형식의 굵은 텍스트를 [text] 형식으로 변환
+        return text.replace(/\*\*(.*?)\*\*/g, '[$1]');
     }
 } 
