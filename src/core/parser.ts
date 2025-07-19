@@ -4,7 +4,13 @@ export interface MarkdownNode {
     type: string;
     content: string;
     children?: MarkdownNode[];
-    attrs?: Record<string, string>;
+    attrs?: {
+        level?: string;
+        listType?: 'bullet' | 'ordered';
+        listLevel?: number;
+        indent?: number;
+        language?: string;  // 코드 블록의 언어 속성 추가
+    };
 }
 
 export class MarkdownParser {
@@ -18,35 +24,16 @@ export class MarkdownParser {
         });
     }
 
-    /**
-     * 마크다운 문자열을 파싱하여 AST를 생성합니다.
-     */
     parse(markdown: string): MarkdownNode[] {
         const tokens = this.md.parse(markdown, {});
         return this.tokensToAST(tokens);
     }
 
-    /**
-     * Mermaid 다이어그램을 추출합니다.
-     */
-    extractMermaidDiagrams(markdown: string): string[] {
-        const diagrams: string[] = [];
-        const regex = /```mermaid\n([\s\S]*?)\n```/g;
-        let match;
-
-        while ((match = regex.exec(markdown)) !== null) {
-            diagrams.push(match[1].trim());
-        }
-
-        return diagrams;
-    }
-
-    /**
-     * markdown-it 토큰을 AST로 변환합니다.
-     */
     private tokensToAST(tokens: any[]): MarkdownNode[] {
         const ast: MarkdownNode[] = [];
         let current: MarkdownNode | null = null;
+        let listLevel = 0;
+        let isInList = false;
 
         for (const token of tokens) {
             switch (token.type) {
@@ -54,15 +41,44 @@ export class MarkdownParser {
                     current = {
                         type: 'heading',
                         content: '',
-                        attrs: { level: token.tag.slice(1) }
+                        attrs: { 
+                            level: token.tag.slice(1),
+                        }
+                    };
+                    break;
+
+                case 'ordered_list_open':
+                    isInList = true;
+                    listLevel++;
+                    break;
+
+                case 'bullet_list_open':
+                    isInList = true;
+                    listLevel++;
+                    break;
+
+                case 'list_item_open':
+                    current = {
+                        type: 'list_item',
+                        content: '',
+                        attrs: {
+                            listType: token.markup === '-' || token.markup === '*' ? 'bullet' : 'ordered',
+                            listLevel: listLevel,
+                            indent: (listLevel - 1) * 2
+                        }
                     };
                     break;
 
                 case 'paragraph_open':
-                    current = {
-                        type: 'paragraph',
-                        content: ''
-                    };
+                    if (!isInList) {
+                        current = {
+                            type: 'paragraph',
+                            content: '',
+                            attrs: {
+                                indent: 0
+                            }
+                        };
+                    }
                     break;
 
                 case 'fence':
@@ -82,22 +98,46 @@ export class MarkdownParser {
 
                 case 'inline':
                     if (current) {
-                        current.content = token.content;
+                        // 줄바꿈을 보존하기 위해 content에서 \n을 <br>로 변환
+                        current.content = token.content.replace(/\n\s*\n/g, '\n\n');
                     }
                     break;
 
-                case 'heading_close':
-                case 'paragraph_close':
+                case 'list_item_close':
                     if (current) {
                         ast.push(current);
                         current = null;
                     }
                     break;
 
-                // 추가적인 토큰 타입들은 필요에 따라 구현
+                case 'bullet_list_close':
+                case 'ordered_list_close':
+                    isInList = false;
+                    listLevel--;
+                    break;
+
+                case 'heading_close':
+                case 'paragraph_close':
+                    if (current && !isInList) {
+                        ast.push(current);
+                        current = null;
+                    }
+                    break;
             }
         }
 
         return ast;
+    }
+
+    extractMermaidDiagrams(markdown: string): string[] {
+        const diagrams: string[] = [];
+        const regex = /```mermaid\n([\s\S]*?)\n```/g;
+        let match;
+
+        while ((match = regex.exec(markdown)) !== null) {
+            diagrams.push(match[1].trim());
+        }
+
+        return diagrams;
     }
 } 

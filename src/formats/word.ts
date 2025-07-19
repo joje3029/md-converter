@@ -10,11 +10,66 @@ import {
     WidthType,
     AlignmentType,
     SectionType,
-    Packer
+    Packer,
+    BorderStyle,
+    convertInchesToTwip,
+    LevelFormat,
+    IStylesOptions,
+    NumberProperties,
+    IParagraphOptions
 } from 'docx';
 import { BaseConverter, ConversionOptions } from '../core/converter';
 import { MarkdownNode } from '../core/parser';
 import * as fs from 'fs/promises';
+
+// 기본 스타일 설정
+const DEFAULT_STYLE = {
+    font: "나눔고딕",
+    color: "000000",  // black
+    size: 24,         // 12pt (24 half-points)
+};
+
+// 번호 매기기 설정
+const LIST_NUMBERING = {
+    config: {
+        reference: "markdown-list",
+        levels: [
+            {
+                level: 0,
+                format: LevelFormat.BULLET,
+                text: "•",
+                alignment: AlignmentType.LEFT,
+                style: {
+                    paragraph: {
+                        indent: { left: convertInchesToTwip(0.5) }
+                    }
+                }
+            },
+            {
+                level: 1,
+                format: LevelFormat.BULLET,
+                text: "○",
+                alignment: AlignmentType.LEFT,
+                style: {
+                    paragraph: {
+                        indent: { left: convertInchesToTwip(1.0) }
+                    }
+                }
+            },
+            {
+                level: 2,
+                format: LevelFormat.BULLET,
+                text: "■",
+                alignment: AlignmentType.LEFT,
+                style: {
+                    paragraph: {
+                        indent: { left: convertInchesToTwip(1.5) }
+                    }
+                }
+            }
+        ]
+    }
+};
 
 export class WordConverter extends BaseConverter {
     private document!: Document;
@@ -34,13 +89,28 @@ export class WordConverter extends BaseConverter {
                         type: SectionType.CONTINUOUS
                     },
                     children: documentElements.filter((el): el is Paragraph | Table => el !== undefined)
-                }]
+                }],
+                styles: {
+                    paragraphStyles: [
+                        {
+                            id: "normal",
+                            name: "Normal",
+                            run: {
+                                font: DEFAULT_STYLE.font,
+                                color: DEFAULT_STYLE.color,
+                                size: DEFAULT_STYLE.size,
+                            }
+                        }
+                    ]
+                },
+                numbering: {
+                    config: [LIST_NUMBERING.config]
+                }
             });
 
             const buffer = await Packer.toBuffer(this.document);
             await fs.writeFile(options.outputPath, buffer);
             
-            // 임시 파일 정리
             await this.cleanup();
         } catch (error) {
             if (error instanceof Error) {
@@ -51,21 +121,58 @@ export class WordConverter extends BaseConverter {
     }
 
     async convertNode(node: MarkdownNode): Promise<Paragraph | Table | undefined> {
+        const baseParaProps: Partial<IParagraphOptions> = {
+            style: "normal",
+            spacing: { after: 200, line: 360 },  // 줄 간격 및 단락 간격 설정
+        };
+
         switch (node.type) {
             case 'heading':
                 return new Paragraph({
+                    ...baseParaProps,
                     text: node.content,
-                    heading: this.getHeadingLevel(node.attrs?.level)
+                    heading: this.getHeadingLevel(node.attrs?.level),
+                    spacing: { 
+                        before: 400, 
+                        after: node.attrs?.level === '1' ? 600 : 200  // h1인 경우 더 큰 간격
+                    }
                 });
 
             case 'paragraph':
+                // 굵은 글씨 처리
+                const parts = node.content.split(/(\*\*.*?\*\*)/g);
+                const runs = parts.map(part => {
+                    const isBold = part.startsWith('**') && part.endsWith('**');
+                    return new TextRun({
+                        text: isBold ? part.slice(2, -2) : part,
+                        bold: isBold,
+                        font: DEFAULT_STYLE.font,
+                        color: DEFAULT_STYLE.color,
+                        size: DEFAULT_STYLE.size
+                    });
+                });
+
                 return new Paragraph({
-                    children: [new TextRun(node.content)]
+                    ...baseParaProps,
+                    children: runs
+                });
+
+            case 'list_item':
+                const level = (node.attrs?.listLevel || 1) - 1;
+                return new Paragraph({
+                    ...baseParaProps,
+                    text: node.content,
+                    numbering: {
+                        reference: "markdown-list",
+                        level: level
+                    },
+                    spacing: { after: 120 }  // 리스트 항목 간격 조정
                 });
 
             case 'mermaid':
                 const imagePath = await this.handleMermaidDiagram(node.content);
                 return new Paragraph({
+                    ...baseParaProps,
                     children: [
                         new ImageRun({
                             data: await fs.readFile(imagePath),
@@ -79,10 +186,13 @@ export class WordConverter extends BaseConverter {
 
             case 'code':
                 return new Paragraph({
+                    ...baseParaProps,
                     children: [
                         new TextRun({
                             text: node.content,
-                            font: 'Courier New'
+                            font: "Courier New",
+                            color: DEFAULT_STYLE.color,
+                            size: DEFAULT_STYLE.size
                         })
                     ]
                 });
@@ -92,7 +202,15 @@ export class WordConverter extends BaseConverter {
 
             default:
                 return new Paragraph({
-                    children: [new TextRun(node.content || '')]
+                    ...baseParaProps,
+                    children: [
+                        new TextRun({
+                            text: node.content || '',
+                            font: DEFAULT_STYLE.font,
+                            color: DEFAULT_STYLE.color,
+                            size: DEFAULT_STYLE.size
+                        })
+                    ]
                 });
         }
     }
@@ -117,9 +235,19 @@ export class WordConverter extends BaseConverter {
 
             const cells = row.children.map(cell => {
                 return new TableCell({
-                    children: [new Paragraph({
-                        children: [new TextRun(cell.content || '')]
-                    })]
+                    children: [
+                        new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: cell.content || '',
+                                    font: DEFAULT_STYLE.font,
+                                    color: DEFAULT_STYLE.color,
+                                    size: DEFAULT_STYLE.size
+                                })
+                            ],
+                            style: "normal"
+                        })
+                    ]
                 });
             });
 
