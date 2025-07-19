@@ -38,22 +38,24 @@ const LIST_NUMBERING = {
             {
                 level: 0,
                 format: LevelFormat.BULLET,
-                text: "•",
+                text: "·",
                 alignment: AlignmentType.LEFT,
                 style: {
                     paragraph: {
-                        indent: { left: convertInchesToTwip(0.5) }
+                        indent: { left: convertInchesToTwip(0.5) },
+                        spacing: { after: 0 }
                     }
                 }
             },
             {
                 level: 1,
                 format: LevelFormat.BULLET,
-                text: "○",
+                text: "‣",
                 alignment: AlignmentType.LEFT,
                 style: {
                     paragraph: {
-                        indent: { left: convertInchesToTwip(1.0) }
+                        indent: { left: convertInchesToTwip(1.0) },
+                        spacing: { after: 0 }
                     }
                 }
             },
@@ -64,7 +66,8 @@ const LIST_NUMBERING = {
                 alignment: AlignmentType.LEFT,
                 style: {
                     paragraph: {
-                        indent: { left: convertInchesToTwip(1.5) }
+                        indent: { left: convertInchesToTwip(1.5) },
+                        spacing: { after: 0 }
                     }
                 }
             }
