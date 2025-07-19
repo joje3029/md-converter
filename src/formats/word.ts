@@ -16,7 +16,8 @@ import {
     LevelFormat,
     IStylesOptions,
     NumberProperties,
-    IParagraphOptions
+    IParagraphOptions,
+    ISectionOptions
 } from 'docx';
 import { BaseConverter, ConversionOptions } from '../core/converter';
 import { MarkdownNode } from '../core/parser';
@@ -73,22 +74,30 @@ const LIST_NUMBERING = {
 
 export class WordConverter extends BaseConverter {
     private document!: Document;
+    private currentSection: { children: (Paragraph | Table)[] } = { children: [] };
 
     async convert(markdown: string, options: ConversionOptions): Promise<void> {
         try {
             const parser = new (await import('../core/parser')).MarkdownParser();
             const nodes = parser.parse(markdown);
 
-            const documentElements = await Promise.all(
-                nodes.map(node => this.convertNode(node))
-            );
+            this.currentSection = { children: [] };
+
+            for (const node of nodes) {
+                const elements = await this.convertNode(node);
+                if (Array.isArray(elements)) {
+                    this.currentSection.children.push(...elements);
+                } else if (elements) {
+                    this.currentSection.children.push(elements);
+                }
+            }
 
             this.document = new Document({
                 sections: [{
                     properties: {
                         type: SectionType.CONTINUOUS
                     },
-                    children: documentElements.filter((el): el is Paragraph | Table => el !== undefined)
+                    children: this.currentSection.children
                 }],
                 styles: {
                     paragraphStyles: [
@@ -120,10 +129,10 @@ export class WordConverter extends BaseConverter {
         }
     }
 
-    async convertNode(node: MarkdownNode): Promise<Paragraph | Table | undefined> {
+    async convertNode(node: MarkdownNode): Promise<(Paragraph | Table)[] | Paragraph | Table | undefined> {
         const baseParaProps: Partial<IParagraphOptions> = {
             style: "normal",
-            spacing: { after: 200, line: 360 },  // 줄 간격 및 단락 간격 설정
+            spacing: { after: 200, line: 360 },
         };
 
         switch (node.type) {
@@ -134,12 +143,11 @@ export class WordConverter extends BaseConverter {
                     heading: this.getHeadingLevel(node.attrs?.level),
                     spacing: { 
                         before: 400, 
-                        after: node.attrs?.level === '1' ? 600 : 200  // h1인 경우 더 큰 간격
+                        after: node.attrs?.level === '1' ? 600 : 200
                     }
                 });
 
             case 'paragraph':
-                // 굵은 글씨 처리
                 const parts = node.content.split(/(\*\*.*?\*\*)/g);
                 const runs = parts.map(part => {
                     const isBold = part.startsWith('**') && part.endsWith('**');
@@ -166,8 +174,68 @@ export class WordConverter extends BaseConverter {
                         reference: "markdown-list",
                         level: level
                     },
-                    spacing: { after: 120 }  // 리스트 항목 간격 조정
+                    spacing: { after: 120 }
                 });
+
+            case 'code':
+                const paragraphs: Paragraph[] = [];
+                
+                // 상단 구분선
+                paragraphs.push(new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: "=".repeat(57),  // 40에서 57로 수정
+                            font: DEFAULT_STYLE.font,
+                            color: DEFAULT_STYLE.color,
+                            size: DEFAULT_STYLE.size
+                        })
+                    ],
+                    spacing: { before: 240, after: 120 }
+                }));
+
+                // 언어 표시
+                if (node.attrs?.language) {
+                    paragraphs.push(new Paragraph({
+                        children: [
+                            new TextRun({
+                                text: `[${node.attrs.language}]`,
+                                font: DEFAULT_STYLE.font,
+                                color: DEFAULT_STYLE.color,
+                                size: DEFAULT_STYLE.size
+                            })
+                        ],
+                        spacing: { before: 120, after: 120 }
+                    }));
+                }
+
+                // 코드 내용
+                paragraphs.push(new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: node.content,
+                            font: "Courier New",
+                            color: DEFAULT_STYLE.color,
+                            size: DEFAULT_STYLE.size
+                        })
+                    ],
+                    indent: { left: convertInchesToTwip(0.5) },
+                    spacing: { before: 120, after: 120 }
+                }));
+
+                // 하단 구분선
+                paragraphs.push(new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: "=".repeat(57),  // 40에서 57로 수정
+                            font: DEFAULT_STYLE.font,
+                            color: DEFAULT_STYLE.color,
+                            size: DEFAULT_STYLE.size
+                        })
+                    ],
+                    spacing: { before: 120, after: 240 }
+                }));
+
+                return paragraphs;
 
             case 'mermaid':
                 const imagePath = await this.handleMermaidDiagram(node.content);
@@ -180,19 +248,6 @@ export class WordConverter extends BaseConverter {
                                 width: 500,
                                 height: 300
                             }
-                        })
-                    ]
-                });
-
-            case 'code':
-                return new Paragraph({
-                    ...baseParaProps,
-                    children: [
-                        new TextRun({
-                            text: node.content,
-                            font: "Courier New",
-                            color: DEFAULT_STYLE.color,
-                            size: DEFAULT_STYLE.size
                         })
                     ]
                 });
